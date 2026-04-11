@@ -52,7 +52,7 @@ distrobox enter grasping
 We set up a virtual environment, that you can source with 
 
 ```
-source /opt/venv/drone_venv/bin/activate
+source /opt/drone_venv/bin/activate
 ```
 
 You will also need to source the isaac lab venv as the same in project 4b
@@ -60,7 +60,7 @@ You will also need to source the isaac lab venv as the same in project 4b
 source /workspace/isaacsim/setup_conda_env.sh
 ```
 
-### Step 4: Train a hover policy
+### Step 3: Train a hover policy
 
 Let's train a simple drone hover controller using the task defined in `cfg/task/Hover.yaml`. This will train a policy that outputs thrust and bodyrate commands to hover in a static position. The number of envs are specified in the yaml file's `num_envs` argument. The environment observation space, and rewards are defined in `EECS106B/omni_drones/envs/single/hover.py`. Make sure you understand these two files, since you will have to create similar files for a drone racing task.
 
@@ -82,7 +82,7 @@ python play.py task.env.num_envs=1 algo.checkpoint_path=</tmp/wandb/run--runid/f
 
 If you haven't configured wandb, the checkpoint files will be saved in  `/tmp/wandb/`.
 
-### Step 5: Racing environment
+### Step 4: Racing environment
 
 The racing environment is defined in `envs/drone_race/drone_race.py`. We provide the user with code for extracting the relevant observations. You must design the reward function in `_compute_reward_and_done`. The environment configuration in defined in `cfg/task/DroneRace.yaml` and the ppo parameters are in `cfg/algo/DroneRace.yaml`. Feel free to change any other parts of the pipeline, this is simply a good starting point. 
 
