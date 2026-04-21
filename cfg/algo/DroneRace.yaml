@@ -15,7 +15,7 @@ max_grad_norm: 5.0
 priv_actor: false
 priv_critic: false
 
-checkpoint_path:
+# checkpoint_path: # seems to override CLI arg
 
 actor:
   # ---- STUDENT EDIT: actor network --------------------------------------

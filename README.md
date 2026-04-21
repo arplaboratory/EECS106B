@@ -77,7 +77,7 @@ If you haven't setup wandb, run `python train.py algo=ppo headless=true wandb.mo
 After training is complete, visualize the results. You should see the drone reach the goal state. 
 
 ```
-python play.py task.env.num_envs=1 algo.checkpoint_path=</tmp/wandb/run--runid/files/checkpoint_final.pt> headless=False
+python play.py task=Hover task.env.num_envs=1 algo=ppo algo.checkpoint_path=</tmp/wandb/run--runid/files/checkpoint_final.pt> headless=False
 ```
 
 If you haven't configured wandb, the checkpoint files will be saved in  `/tmp/wandb/`.
