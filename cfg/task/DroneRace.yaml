@@ -29,6 +29,12 @@ save_interval: 100
 # Gate's local x axis is perpendicular to surface. Center is on the bottom middle. 
 # IMPORTANT: The last gate should be the exact same pos and yaw as the first gate. 
 
+# Empty track
+# track_config:
+#   "1":
+#     pos: [0.0, 0.0, 10.0]
+#     yaw: 0
+
 # Circular track 
 track_config:
   "1":
@@ -138,6 +144,33 @@ reward_example: 0.5          # <-- EDIT or replace with your own reward scales
 # reward_progress_scale: 1.0
 # reward_gate_passage: 10.0
 # reward_crash_scale: 5.0
+# --------------------------------------------------------------------------
+
+# ---- STUDENT EDIT: test your Geometric Contoller --------------------------------
+# Test trajectory parameters for testing the geometric-controller
+# Supported modes: planner, hover, straight, spin, circle
+trajectory_mode: hover
+trajectory_forward_speed: 1.0
+trajectory_spin_yaw_rate: 1.0
+trajectory_circle_radius: 1.5
+trajectory_circle_speed: 1.0
+# --------------------------------------------------------------------------
+
+# ---- STUDENT EDIT: MPC Parameters --------------------------------
+# Add extra MPC weights here (Optional)
+mpc_vehicle_mass_kg: 1.52
+mpc_example_max: 1.0
+mpc_example_min: -1.0
+# mpc_a_max: 20.0
+# mpc_a_z_max_up: 2.0
+# mpc_a_z_max_down: 2.0
+# mpc_max_tilt_deg: 52.0
+# mpc_r_delta_u: 0.05
+# rate_lpf_alpha: 0.60
+# thrust_lpf_alpha: 0.50
+# body_rate_limit_scale: 0.90
+# mpc_yaw_rate_cmd_max: 1.0
+# mpc_yaw_rate_slew_max: 6.0
 # --------------------------------------------------------------------------
 
 debug_gate_origins: false

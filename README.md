@@ -82,6 +82,14 @@ python play.py task=Hover task.env.num_envs=1 algo=ppo algo.checkpoint_path=</tm
 
 If you haven't configured wandb, the checkpoint files will be saved in  `/tmp/wandb/`.
 
+### Step 3b: Hover using Geometric Controller
+First implement `geometric_controller` in `envs/drone_race/drone_race.py`.
+```
+cd scripts
+python mpc.py
+```
+You should see the drone hover in place without flying off in any direction at the start of the circle track. You can try other tests by adjusting the parameters in `cfg/task/DroneRace.yaml`, and switch to the empty track if the gates are getting in the way.
+
 ### Step 4: Racing environment
 
 The racing environment is defined in `envs/drone_race/drone_race.py`. We provide the user with code for extracting the relevant observations. You must design the reward function in `_compute_reward_and_done`. The environment configuration in defined in `cfg/task/DroneRace.yaml` and the ppo parameters are in `cfg/algo/DroneRace.yaml`. Feel free to change any other parts of the pipeline, this is simply a good starting point. 
