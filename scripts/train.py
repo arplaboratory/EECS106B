@@ -63,7 +63,28 @@ def main(cfg):
         if ppo_cfg_path.exists():
             logging.info(f"Loading task-specific PPO config: {ppo_cfg_path}")
             task_ppo_cfg = OmegaConf.load(ppo_cfg_path)
+
+
+            # Extract ONLY the command-line overrides by finding keys that differ
+            # from the task_ppo_cfg. These are the values we want to preserve.
+            #   Start with task_ppo_cfg (DroneRace.yaml) as the base
+            #   Apply only explicit command-line overrides on top
+
+            # Extract checkpoint_path specifically since that's 
+            # what we pass on command line
+            cli_checkpoint = cfg.algo.get("checkpoint_path", None)
+
+            # Apply DroneRace.yaml over defaults
             cfg.algo = OmegaConf.merge(cfg.algo, task_ppo_cfg)
+
+            # Re-apply command-line checkpoint_path if it was specified
+            if cli_checkpoint:
+                cfg.algo.checkpoint_path = cli_checkpoint
+                logging.info(f"Re-applied CLI checkpoint_path: {cli_checkpoint}")
+
+            logging.info(f"Final checkpoint_path = {cfg.algo.get('checkpoint_path', None)}")
+            logging.info(f"Final hidden_units = {cfg.algo.actor.hidden_units}")
+
         else:
             logging.warning(f"ppo_cfg '{ppo_cfg_name}' not found at {ppo_cfg_path}, using default.")
 
@@ -164,6 +185,28 @@ def main(cfg):
             env.reward_spec,
             device=base_env.device
         )
+
+        # TRAIN FROM A CHECKPOINT ---------------------
+        checkpoint_path = cfg.algo.get("checkpoint_path", None)
+        if checkpoint_path:
+            if os.path.exists(checkpoint_path):
+                logging.info("--- CHECKPOINT FOUND --- ")
+                logging.info(f"Loading checkpoint from {checkpoint_path}")
+                state_dict = torch.load(checkpoint_path, map_location=base_env.device)
+                policy.load_state_dict(state_dict)
+                logging.info(f"Checkpoint keys loaded: {list(state_dict.keys())[:5]}...")
+                logging.info(f"Successfully loaded checkpoint. Resuming from checkpoint weights.")
+            else:
+                logging.error("--- CHECKPOINT NOT FOUND ---")
+                logging.warning(
+                    f"Checkpoint path specified but NOT FOUND: {checkpoint_path}\n"
+                    f"Training from scratch instead."
+                )
+        else:
+            logging.info("No checkpoint path specified or provided. Training from scratch.")       
+        # -----------------------------------------------
+
+
     except KeyError:
         raise NotImplementedError(f"Unknown algorithm: {cfg.algo.name}")
 
