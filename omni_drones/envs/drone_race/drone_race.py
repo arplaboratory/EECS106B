@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
+import numpy as np
 import imp
 import torch
 import torch.distributions as D
@@ -29,7 +29,15 @@ from torchrl.data import Unbounded, Composite, DiscreteTensorSpec, BinaryDiscret
 
 import isaacsim.core.utils.prims as prim_utils
 import omni_drones.utils.kit as kit_utils
-from omni_drones.utils.torch import euler_to_quaternion, quat_rotate, quat_rotate_inverse, quat_axis
+from omni_drones.utils.torch import (
+    euler_to_quaternion,
+    quat_rotate,
+    quat_rotate_inverse,
+    quat_axis,
+    quaternion_to_rotation_matrix,
+    quaternion_to_euler,
+    normalize,
+)
 from omni_drones.envs.isaac_env import AgentSpec, IsaacEnv
 from omni_drones.robots.drone import MultirotorBase
 from omni_drones.views import ArticulationView, RigidPrimView
@@ -37,6 +45,8 @@ from omni_drones.views import ArticulationView, RigidPrimView
 from omni_drones.robots import ASSET_PATH
 
 from pxr import UsdPhysics
+
+from .drone_planner import DronePlanner, PlannerParams
 
 # Debug visualization
 try:
@@ -101,10 +111,15 @@ class DroneRaceEnv(IsaacEnv):
         # -----------------------------------------------------------------------
         # ----- ADD YOUR REWARD CONFIG LINES BELOW (replace / extend the example) -----
 
-        self.reward_example = cfg.task.get("reward_example", 0.5)
+        # self.reward_example = cfg.task.get("reward_example", 0.5)
 
         # ----- END STUDENT CODE -----
-
+        self.trajectory_cache = None
+        self.trajectory_mode = str(cfg.task.get("trajectory_mode", "planner")).lower()
+        self.trajectory_forward_speed = cfg.task.get("trajectory_forward_speed", 1.0)
+        self.trajectory_spin_yaw_rate = cfg.task.get("trajectory_spin_yaw_rate", 1.0)
+        self.trajectory_circle_radius = cfg.task.get("trajectory_circle_radius", 1.5)
+        self.trajectory_circle_speed = cfg.task.get("trajectory_circle_speed", 1.0)
         self.gate_scale = cfg.task.gate_scale
         
         # Gate asset path - default to isaac_drone_racer gate asset
@@ -156,6 +171,14 @@ class DroneRaceEnv(IsaacEnv):
             raise
 
         self.hover_cmd_thrust = None
+        self.policy_dt = self.dt * self.substeps
+        self.local_planner = DronePlanner(PlannerParams(dt=float(self.policy_dt)))
+        self._mpc_u_prev = np.zeros(4, dtype=np.float64)
+        self.test_traj_origin = torch.zeros(self.num_envs, 3, device=self.device)
+        self.test_traj_forward_dir = torch.zeros(self.num_envs, 3, device=self.device)
+        self.test_traj_left_dir = torch.zeros(self.num_envs, 3, device=self.device)
+        self.test_traj_yaw0 = torch.zeros(self.num_envs, 1, device=self.device)
+        self.trajectory_cache = [None for _ in range(self.num_envs)]
 
         print(f"[DroneRaceEnv] num_envs={self.num_envs}, num_gates={self.num_gates}")
         # Track gate progress for each environment
@@ -167,7 +190,15 @@ class DroneRaceEnv(IsaacEnv):
         self.gate_width = cfg.task.get("gate_width", 1.0)
         self.prev_drone_in_gate_frame = torch.zeros(self.num_envs, 3, device=self.device)
         self.last_action = torch.zeros(self.num_envs, 1, self.drone.action_spec.shape[-1], device=self.device)
-        self.effort = torch.zeros(self.num_envs, 1, self.drone.action_spec.shape[-1], device=self.device) 
+        self.effort = torch.zeros(self.num_envs, 1, self.drone.action_spec.shape[-1], device=self.device)
+        # For MPC w/ local planner
+        self.local_planner.params.gate_width = float(self.gate_width)
+        self.local_planner.params.gate_height = float(self.gate_height)
+        self.local_planner.params.mass = float(self.drone.MASS_0.reshape(-1)[0].item())
+        J0 = self.drone.INERTIA_0.reshape(-1)
+        self.local_planner.params.Jx, self.local_planner.params.Jy, self.local_planner.params.Jz = [float(J0[i].item()) for i in range(3)]
+        if self.controller is not None and hasattr(self.controller, "max_body_rates"):
+            self.local_planner.params.max_body_rate = float(self.controller.max_body_rates.max().item())
 
         # Use a single view with wildcard pattern to access all gates
         try:
@@ -204,9 +235,9 @@ class DroneRaceEnv(IsaacEnv):
             torch.tensor([-1.0, -1.0, 1.5], device=self.device),
             torch.tensor([1.0, 1.0, 2.5], device=self.device)
         )
-        self.init_rpy_dist = D.Uniform(
-            torch.tensor([-.2, -.2, 0.], device=self.device) * torch.pi,
-            torch.tensor([.2, .2, 0.], device=self.device) * torch.pi
+        self.init_rp_dist = D.Uniform(
+            torch.tensor([-.2, -.2], device=self.device) * torch.pi,
+            torch.tensor([.2, .2], device=self.device) * torch.pi
         )
 
         self.offset_local = torch.tensor([-1.5, 0.0, self.gate_height / 2.0], device=self.device)
@@ -392,6 +423,16 @@ class DroneRaceEnv(IsaacEnv):
             },
             "info": {
                 "drone_state": Unbounded((1, robot_state_dim), device=self.device),
+                "drone_pos": Unbounded((1, 3), device=self.device),
+                "drone_rot": Unbounded((1, 4), device=self.device),
+                "drone_vel": Unbounded((1, 3), device=self.device),
+                "drone_ang_vel_body": Unbounded((1, 3), device=self.device),
+                "current_gate_center": Unbounded((1, 3), device=self.device),
+                "current_gate_rot": Unbounded((1, 4), device=self.device),
+                "next_gate_center": Unbounded((1, 3), device=self.device),
+                "gate_forward_axis": Unbounded((1, 3), device=self.device),
+                "next_segment": Unbounded((1, 3), device=self.device),
+                "drone_in_gate_frame": Unbounded((1, 3), device=self.device),
             },
         }).expand(self.num_envs).to(self.device)
         self.action_spec = Composite({
@@ -435,6 +476,10 @@ class DroneRaceEnv(IsaacEnv):
         self.track_completed[env_ids] = False
         self.last_action[env_ids] = 0.0
         self.effort[env_ids] = 0.0 # Adding this line changes the result
+        if self.trajectory_cache is not None:
+            for env_id in env_ids.tolist():
+                self.trajectory_cache[int(env_id)] = None
+        self._mpc_u_prev[:] = 0.0
 
         # Reset gate velocities to prevent drift (gates are static, so we just zero velocities)
         # Set velocities to zero for all gates in reset environments
@@ -519,6 +564,24 @@ class DroneRaceEnv(IsaacEnv):
         self.prev_drone_in_gate_frame[env_ids] = quat_rotate_inverse(
             first_gate_rot, drone_to_first_gate_center
         )  # (len(env_ids), 3)
+
+        gate_forward_local = torch.tensor([1.0, 0.0, 0.0], device=self.device)
+        gate_forward_local = gate_forward_local.unsqueeze(0).expand(len(env_ids), -1)
+        test_forward_dir = quat_rotate(first_gate_rot, gate_forward_local)
+        test_forward_dir[..., 2] = 0.0
+        test_forward_dir = normalize(test_forward_dir)
+        test_left_dir = torch.stack(
+            [
+                -test_forward_dir[:, 1],
+                test_forward_dir[:, 0],
+                torch.zeros_like(test_forward_dir[:, 0]),
+            ],
+            dim=-1,
+        )
+        self.test_traj_origin[env_ids] = drone_start_pos
+        self.test_traj_forward_dir[env_ids] = test_forward_dir
+        self.test_traj_left_dir[env_ids] = test_left_dir
+        self.test_traj_yaw0[env_ids] = yaw.squeeze(1)
 
         self.stats.exclude("success")[env_ids] = 0.
         self.stats["success"][env_ids] = False
@@ -728,6 +791,261 @@ class DroneRaceEnv(IsaacEnv):
             },
             self.batch_size,
         )
+
+    def plan_test_trajectory(self):
+        """Return a simple trajectory to test the geometric controller."""
+        self.drone.get_state()
+        drone_pos = self.drone.pos.squeeze(1)
+        t = (self.progress_buf * self.policy_dt).unsqueeze(-1)
+        x_des = self.test_traj_origin - drone_pos
+        v_des = torch.zeros(self.num_envs, 3, device=self.device)
+        a_des = torch.zeros(self.num_envs, 3, device=self.device)
+        yaw_des = self.test_traj_yaw0.clone()
+        yaw_rate_des = torch.zeros(self.num_envs, 1, device=self.device)
+
+        if self.trajectory_mode == "hover":
+            pass
+        elif self.trajectory_mode in ("straight", "go_straight", "forward"):
+            ref_pos = self.test_traj_origin + (
+                self.trajectory_forward_speed * t
+            ) * self.test_traj_forward_dir
+            x_des = ref_pos - drone_pos
+            v_des = self.trajectory_forward_speed * self.test_traj_forward_dir
+            yaw_des = torch.atan2(
+                self.test_traj_forward_dir[:, 1],
+                self.test_traj_forward_dir[:, 0],
+            ).unsqueeze(-1)
+        elif self.trajectory_mode == "spin":
+            yaw_des = self.test_traj_yaw0 + self.trajectory_spin_yaw_rate * t
+            yaw_rate_des = torch.full(
+                (self.num_envs, 1),
+                self.trajectory_spin_yaw_rate,
+                device=self.device,
+            )
+        elif self.trajectory_mode == "circle":
+            omega = self.trajectory_circle_speed / max(
+                self.trajectory_circle_radius, 1e-5
+            )
+            phase = omega * t
+            cos_phase = torch.cos(phase)
+            sin_phase = torch.sin(phase)
+            circle_offset = (
+                self.trajectory_circle_radius * (cos_phase - 1.0)
+            ) * self.test_traj_forward_dir + (
+                self.trajectory_circle_radius * sin_phase
+            ) * self.test_traj_left_dir
+            ref_pos = self.test_traj_origin + circle_offset
+            x_des = ref_pos - drone_pos
+            v_des = (
+                -self.trajectory_circle_radius * omega * sin_phase
+            ) * self.test_traj_forward_dir + (
+                self.trajectory_circle_radius * omega * cos_phase
+            ) * self.test_traj_left_dir
+            a_des = (
+                -self.trajectory_circle_radius * omega * omega * cos_phase
+            ) * self.test_traj_forward_dir + (
+                -self.trajectory_circle_radius * omega * omega * sin_phase
+            ) * self.test_traj_left_dir
+        else:
+            raise ValueError(
+                f"Unknown trajectory_mode '{self.trajectory_mode}'. "
+                "Supported modes: planner, hover, straight, spin, circle."
+            )
+
+        return {
+            "x_des": x_des,
+            "v_des": v_des,
+            "a_des": a_des,
+            "yaw_des": yaw_des,
+            "yaw_rate_des": yaw_rate_des,
+        }
+
+    def _consume_cached_trajectory_step(self, env_idx, gate_index, drone_pos):
+        if self.trajectory_cache is None:
+            return None
+
+        cache = self.trajectory_cache[env_idx]
+        if cache is None or cache["gate_index"] != gate_index:
+            self.trajectory_cache[env_idx] = None
+            return None
+
+        if cache["p_des"].shape[0] == 0:
+            self.trajectory_cache[env_idx] = None
+            return None
+
+        step = {
+            "x_des": cache["p_des"][0] - drone_pos,
+            "v_des": cache["v_des"][0],
+            "a_des": cache["a_des"][0],
+            "yaw_des": cache["yaw_des"][0],
+            "yaw_rate_des": cache["yaw_rate_des"][0],
+        }
+
+        if cache["p_des"].shape[0] == 1:
+            self.trajectory_cache[env_idx] = None
+        else:
+            for key in ("p_des", "v_des", "a_des", "yaw_des", "yaw_rate_des"):
+                cache[key] = cache[key][1:]
+
+        return step
+
+    def _store_trajectory_cache(self, env_idx, gate_index, result):
+        if self.trajectory_cache is None:
+            self.trajectory_cache = [None for _ in range(self.num_envs)]
+
+        if result.p_des.size == 0:
+            self.trajectory_cache[env_idx] = None
+            return
+
+        self.trajectory_cache[env_idx] = {
+            "gate_index": gate_index,
+            "p_des": torch.as_tensor(
+                result.p_des, device=self.device, dtype=torch.float32
+            ),
+            "v_des": torch.as_tensor(
+                result.v_des, device=self.device, dtype=torch.float32
+            ),
+            "a_des": torch.as_tensor(
+                result.a_des, device=self.device, dtype=torch.float32
+            ),
+            "yaw_des": torch.as_tensor(
+                result.yaw_des, device=self.device, dtype=torch.float32
+            ).unsqueeze(-1),
+            "yaw_rate_des": torch.as_tensor(
+                result.yaw_rate_des, device=self.device, dtype=torch.float32
+            ).unsqueeze(-1),
+        }
+
+    def plan_local_trajectory(self):
+        import traceback
+        import sys
+
+        track_completed = self.track_completed  # (N,)
+
+        try:
+            # Use cached pose tensors directly; self.drone_state does not include position/quaternion.
+            drone_pos = self.drone.pos  # (N, 1, 3), env frame
+            drone_rot = self.drone.rot  # (N, 1, 4), quaternion
+
+            gate_world_pos, gate_world_rot = self.gates.get_world_poses()
+            gate_env_pos, gate_env_rot = self.get_env_poses((gate_world_pos, gate_world_rot))
+
+            # Print debug positions in the same frame (env frame) for easier sanity checks.
+            gate_idx0 = int(self.gate_indices[0].item())
+            # print(f"Drone position (env frame): {torch.round(drone_pos[0, 0] * 100) / 100}")
+            if self.debug_gate_origins:
+                self._draw_gate_origins(gate_world_pos, gate_world_rot, env_idx=0)
+
+            batch_indices = torch.arange(self.num_envs, device=self.device)
+            current_gate_pos = gate_env_pos[batch_indices, self.gate_indices]  # (N, 3)
+        except Exception as e:
+            print("=" * 80)
+            print(f"ERROR: Failed in _compute_reward_and_done (num_envs={self.num_envs}, num_gates={self.num_gates})")
+            print("=" * 80)
+            traceback.print_exc()
+            raise
+
+        current_gate_rot = gate_env_rot[batch_indices, self.gate_indices]  # (N, 4)
+        current_gate_center = self._get_gate_center(current_gate_pos, current_gate_rot)  # (N, 3)
+
+        drone_pos_flat = drone_pos.squeeze(1)  # (N, 3)
+        distance_to_gate = torch.norm(drone_pos_flat - current_gate_center, dim=-1)  # (N,)
+
+        # --- gate crossing detection ---
+        # You either _deteect_gate_crossings or _detect_gate_crossings_via_segments
+        # This function call updates the gate indexes
+        gate_passed_this_step, gate_index_changed, new_gate_center = self._detect_gate_crossings(
+            drone_pos_flat, current_gate_center, current_gate_rot,
+            gate_env_pos, gate_env_rot, batch_indices,
+        )
+
+        # -----------------------------------------------------------------------
+        # STUDENT TODO (MPC 3/3): Implement your reward function.
+        #
+        # Variables available in this scope:
+        #   drone_pos_flat        (N, 3)    drone position in env frame
+        #   drone_rot             (N, 1, 4) drone orientation quaternion (w, x, y, z)
+        #   distance_to_gate      (N,)      Euclidean distance to current gate centre
+        #   current_gate_center   (N, 3)    3-D centre of the current target gate
+        #   gate_passed_this_step (N,)      bool – True when drone just passed a gate
+        #   gate_index_changed    (N,)      bool – True when target gate index advanced
+        #   new_gate_center       (N, 3)    centre of the (possibly new) target gate
+        #   crashed_collision     (N,)      bool – True when contact forces are detected
+        #   self.drone.vel        (N, 1, 6) [lin_vel(3) | ang_vel(3)] in body frame
+        #   self.gate_indices     (N,)      index of current target gate (0…num_gates-1)
+        #   self.track_completed  (N,)      bool – True when the full lap is done
+        #
+        # Useful helpers (already imported at top of file):
+        #   quat_axis(q, axis)          extract body axis vector (0=x, 1=y, 2=z)
+        #   quat_rotate(q, v)           rotate vector v by quaternion q
+        #   quat_rotate_inverse(q, v)   rotate vector v by inverse of quaternion q
+        # -----------------------------------------------------------------------
+        # ----- PREPARE YOUR ARGUMENTS FOR YOUR LOCAL TRAJECTORY PLANNER BELOW (change args)-----
+        args = 0
+        result = self.local_planner.solve(args)
+        # ----- OR COMPUTE DIRECTLY -----
+
+        return {
+            "x_des": result["x_des"],
+            "v_des": result["v_des"],
+            "a_des": result["a_des"],
+            "yaw_des": result["yaw_des"],
+            "yaw_rate_des": result["yaw_rate_des"],
+        }
+
+    def geometric_controller(self, x_des, v_des, yaw_des, a_des=None, yaw_rate_des=None):
+        drone_pos = self.drone.pos  # (N, 1, 3), env frame
+        drone_rot = self.drone.rot  # (N, 1, 4), quaternion
+        R = quaternion_to_rotation_matrix(drone_rot) # (N, 3, 3), rotation matrix
+        drone_pos_flat = drone_pos.squeeze(1)  # (N, 3)
+        distance_to_gate = torch.norm(drone_pos_flat - current_gate_center, dim=-1)  # (N,)
+
+        kp = torch.tensor([9.6, 9.6, 16.0], device=self.device)
+        kv = torch.tensor([4.8, 4.8, 8.0], device=self.device)
+        kR = torch.tensor([4.0, 4.0, 1.5], device=self.device)
+        kOmega = torch.tensor([1.0, 1.0, 0.5], device=self.device)
+
+        mass = self.drone.masses.reshape(self.num_envs, -1)[..., :1]
+        g = 9.81
+
+        # -----------------------------------------------------------------------
+        # STUDENT TODO (MPC 2/3): Implement your geometric controller.
+        #
+        # Variables available in this scope:
+        #   drone_pos_flat        (N, 3)    drone position in env frame
+        #   drone_rot             (N, 1, 4) drone orientation quaternion (w, x, y, z)
+        #   self.drone.vel        (N, 1, 6) [lin_vel(3) | ang_vel(3)] in body frame
+        # -----------------------------------------------------------------------
+        # ----- ADD YOUR GEOMETRIC CONTROLLER CODE BELOW -----
+        u1 = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        body_rate = torch.zeros((self.num_envs, 3), dtype=torch.bool, device=self.device)
+
+        return u1, body_rate
+
+    def compute_mpc_action(self):
+        if self.controller is None:
+            raise RuntimeError(
+                "MPC needs the rate controller"
+            )
+        if self.trajectory_mode != "planner":
+            traj = self.plan_test_trajectory()
+        else:
+            traj = self.plan_local_trajectory()
+
+        u1, body_rate = self.geometric_controller(
+            traj["x_des"],
+            traj["v_des"],
+            traj["yaw_des"],
+            a_des=traj["a_des"],
+            yaw_rate_des=traj["yaw_rate_des"],
+        )
+
+        max_body_rates = self.controller.max_body_rates.to(self.device)
+        max_thrust = self.controller.max_thrusts.sum(-1, keepdim=True).to(self.device)
+
+        action_rate = (body_rate / max_body_rates).clamp(-1.0, 1.0)
+        action_thrust = (2.0 * u1 / max_thrust - 1.0).clamp(-1.0, 1.0)
+        return torch.cat([action_rate, action_thrust], dim=-1).unsqueeze(1)
 
     def _get_gate_center(self, gate_pos, gate_rot):
         """Compute gate center from gate origin (bottom-centre) by adding height/2 offset in gate frame.
