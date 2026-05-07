@@ -6,6 +6,18 @@ import time
 import yaml
 import traceback
 
+# Ensure the local omni_drones package (with student reward implementation)
+# takes precedence over the system-installed one at /workspace/omni_drones/.
+# This MUST happen before any `from omni_drones import ...` line, because
+# Python caches the package path in sys.modules on first import.
+import sys
+import pathlib
+
+FILE_PATH = os.path.dirname(__file__)
+REPO_ROOT = pathlib.Path(FILE_PATH).resolve().parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 import hydra
 import torch
 import numpy as np
@@ -35,7 +47,6 @@ from omni_drones.learning import ALGOS
 from setproctitle import setproctitle
 from torchrl.envs.transforms import TransformedEnv, InitTracker, Compose
 
-
 # def set_global_reproducibility(seed: int, deterministic: bool = True):
 #     """Seed common RNGs and opt into deterministic torch kernels."""
 #     random.seed(seed)
@@ -45,7 +56,8 @@ from torchrl.envs.transforms import TransformedEnv, InitTracker, Compose
 #         torch.cuda.manual_seed(seed)
 #         torch.cuda.manual_seed_all(seed)
 
-@hydra.main(version_base=None, config_path=".", config_name="train")
+
+@hydra.main(version_base=None, config_path="../cfg", config_name="train")
 def main(cfg):
     OmegaConf.register_new_resolver("eval", eval)
     OmegaConf.resolve(cfg)
@@ -56,6 +68,7 @@ def main(cfg):
     ppo_cfg_name = cfg.task.get("ppo_cfg", None)
     if ppo_cfg_name:
         import pathlib
+
         algo_dir = pathlib.Path(__file__).parent.parent / "cfg" / "algo"
         ppo_cfg_path = algo_dir / ppo_cfg_name
         if not ppo_cfg_path.suffix:
@@ -65,7 +78,9 @@ def main(cfg):
             task_ppo_cfg = OmegaConf.load(ppo_cfg_path)
             cfg.algo = OmegaConf.merge(cfg.algo, task_ppo_cfg)
         else:
-            logging.warning(f"ppo_cfg '{ppo_cfg_name}' not found at {ppo_cfg_path}, using default.")
+            logging.warning(
+                f"ppo_cfg '{ppo_cfg_name}' not found at {ppo_cfg_path}, using default."
+            )
 
     # set_global_reproducibility(cfg.seed, deterministic=cfg.get("deterministic", True))
 
@@ -73,7 +88,7 @@ def main(cfg):
     run = init_wandb(cfg)
     setproctitle(run.name)
     print(OmegaConf.to_yaml(cfg))
-    
+
     # Save config.yaml early to ensure it's available even if interrupted
     # Wandb saves config.yaml when finish() is called, but we want it saved immediately
     def save_config_early():
@@ -84,14 +99,14 @@ def main(cfg):
             config_dict = {}
             for key, value in run.config.items():
                 config_dict[key] = {"value": value}
-            with open(config_path, 'w') as f:
+            with open(config_path, "w") as f:
                 yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
             logging.info(f"Saved config.yaml to {config_path}")
         except Exception as e:
             logging.warning(f"Could not save config.yaml early: {e}")
-    
+
     save_config_early()
-    
+
     # Set up signal handler to ensure config is saved on Ctrl+C
     # The finally block will handle wandb.finish() and simulation_app.close()
     def signal_handler(sig, frame):
@@ -99,11 +114,13 @@ def main(cfg):
             sig_name = signal.Signals(sig).name
         except Exception:
             sig_name = str(sig)
-        logging.warning(f"Received signal {sig_name} ({sig}). Saving config and exiting...")
+        logging.warning(
+            f"Received signal {sig_name} ({sig}). Saving config and exiting..."
+        )
         save_config_early()  # Save config immediately before cleanup
         # Let the exception propagate to trigger finally block
         raise KeyboardInterrupt
-    
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
@@ -117,10 +134,14 @@ def main(cfg):
     # a CompositeSpec is by default processed by a entity-based encoder
     # ravel it to use a MLP encoder instead
     if cfg.task.get("ravel_obs", False):
-        transform = ravel_composite(base_env.observation_spec, ("agents", "observation"))
+        transform = ravel_composite(
+            base_env.observation_spec, ("agents", "observation")
+        )
         transforms.append(transform)
     if cfg.task.get("ravel_obs_central", False):
-        transform = ravel_composite(base_env.observation_spec, ("agents", "observation_central"))
+        transform = ravel_composite(
+            base_env.observation_spec, ("agents", "observation_central")
+        )
         transforms.append(transform)
 
     # optionally discretize the action space or use a controller
@@ -140,7 +161,9 @@ def main(cfg):
                     "task.action_transform=rate requires cfg.task.drone_model.controller "
                     "to be set (e.g. RateController)."
                 )
-            transform = RateController(base_env.controller, action_key=("agents", "action"))
+            transform = RateController(
+                base_env.controller, action_key=("agents", "action")
+            )
             transforms.append(transform)
         elif action_transform == "attitude":
             if not hasattr(base_env, "controller") or base_env.controller is None:
@@ -148,7 +171,9 @@ def main(cfg):
                     "task.action_transform=attitude requires cfg.task.drone_model.controller "
                     "to be set (e.g. AttitudeController)."
                 )
-            transform = AttitudeController(base_env.controller, action_key=("agents", "action"))
+            transform = AttitudeController(
+                base_env.controller, action_key=("agents", "action")
+            )
             transforms.append(transform)
         else:
             raise NotImplementedError(f"Unknown action transform: {action_transform}")
@@ -162,7 +187,7 @@ def main(cfg):
             env.observation_spec,
             env.action_spec,
             env.reward_spec,
-            device=base_env.device
+            device=base_env.device,
         )
     except KeyError:
         raise NotImplementedError(f"Unknown algorithm: {cfg.algo.name}")
@@ -174,8 +199,9 @@ def main(cfg):
     save_interval = cfg.get("save_interval", -1)
 
     stats_keys = [
-        k for k in base_env.observation_spec.keys(True, True)
-        if isinstance(k, tuple) and k[0]=="stats"
+        k
+        for k in base_env.observation_spec.keys(True, True)
+        if isinstance(k, tuple) and k[0] == "stats"
     ]
     episode_stats = EpisodeStats(stats_keys)
     collector = SyncDataCollector(
@@ -189,8 +215,7 @@ def main(cfg):
 
     @torch.no_grad()
     def evaluate(
-        seed: int=0,
-        exploration_type: ExplorationType=ExplorationType.MODE
+        seed: int = 0, exploration_type: ExplorationType = ExplorationType.MODE
     ):
 
         base_env.enable_render(True)
@@ -216,12 +241,11 @@ def main(cfg):
         first_done = torch.argmax(done.long(), dim=1).cpu()
 
         def take_first_episode(tensor: torch.Tensor):
-            indices = first_done.reshape(first_done.shape+(1,)*(tensor.ndim-2))
+            indices = first_done.reshape(first_done.shape + (1,) * (tensor.ndim - 2))
             return torch.take_along_dim(tensor, indices, dim=1).reshape(-1)
 
         traj_stats = {
-            k: take_first_episode(v)
-            for k, v in trajs[("next", "stats")].cpu().items()
+            k: take_first_episode(v) for k, v in trajs[("next", "stats")].cpu().items()
         }
 
         info = {
@@ -233,9 +257,7 @@ def main(cfg):
         video_array = render_callback.get_video_array(axes="t c h w")
         if video_array is not None:
             info["recording"] = wandb.Video(
-                video_array,
-                fps=0.5 / (cfg.sim.dt * cfg.sim.substeps),
-                format="mp4"
+                video_array, fps=0.5 / (cfg.sim.dt * cfg.sim.substeps), format="mp4"
             )
 
         # log distributions
@@ -252,7 +274,7 @@ def main(cfg):
             f"Starting training loop: frames_per_batch={frames_per_batch}, "
             f"total_frames={total_frames}, num_envs={env.num_envs}"
         )
-        pbar = tqdm(collector, total=total_frames//frames_per_batch)
+        pbar = tqdm(collector, total=total_frames // frames_per_batch)
         env.train()
         logging.info("Entering collector iteration.")
         for i, data in enumerate(pbar):
@@ -261,7 +283,10 @@ def main(cfg):
 
             if len(episode_stats) >= base_env.num_envs:
                 stats = {
-                    "train/" + (".".join(k) if isinstance(k, tuple) else k): torch.mean(v.float()).item()
+                    "train/"
+                    + (".".join(k) if isinstance(k, tuple) else k): torch.mean(
+                        v.float()
+                    ).item()
                     for k, v in episode_stats.pop().items(True, True)
                 }
                 info.update(stats)
@@ -277,17 +302,27 @@ def main(cfg):
 
             if save_interval > 0 and i % save_interval == 0:
                 try:
-                    ckpt_path = os.path.join(run.dir, f"checkpoint_{collector._frames}.pt")
+                    ckpt_path = os.path.join(
+                        run.dir, f"checkpoint_{collector._frames}.pt"
+                    )
                     torch.save(policy.state_dict(), ckpt_path)
                     logging.info(f"Saved checkpoint to {str(ckpt_path)}")
                 except AttributeError:
-                    logging.warning(f"Policy {policy} does not implement `.state_dict()`")
+                    logging.warning(
+                        f"Policy {policy} does not implement `.state_dict()`"
+                    )
 
             run.log(info)
-            print(OmegaConf.to_yaml({k: v for k, v in info.items() if isinstance(v, float)}))
+            print(
+                OmegaConf.to_yaml(
+                    {k: v for k, v in info.items() if isinstance(v, float)}
+                )
+            )
             print(f"[train] epoch={i + 1} total_frames_processed={collector._frames}")
 
-            pbar.set_postfix({"rollout_fps": collector._fps, "frames": collector._frames})
+            pbar.set_postfix(
+                {"rollout_fps": collector._fps, "frames": collector._frames}
+            )
 
             if max_iters > 0 and i >= max_iters - 1:
                 break
@@ -306,7 +341,8 @@ def main(cfg):
                 f"{cfg.task.name}-{cfg.algo.name.lower()}",
                 type="model",
                 description=f"{cfg.task.name}-{cfg.algo.name.lower()}",
-                metadata=dict(cfg))
+                metadata=dict(cfg),
+            )
 
             model_artifact.add_file(ckpt_path)
             wandb.save(ckpt_path)
