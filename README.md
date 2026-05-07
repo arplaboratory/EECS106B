@@ -60,6 +60,26 @@ You will also need to source the isaac lab venv as the same in project 4b
 source /workspace/isaacsim/setup_conda_env.sh
 ```
 
+### Step 2b (optional): Install the DreamerV3 / SkyDreamer backend
+
+The DreamerV3 policy in `omni_drones/learning/dreamerv3/` runs on JAX and is
+**not** installed by default — PPO and the other algos do not need it. Install
+it as an optional extras group from the `EECS106B` project root (inside the
+distrobox, with `/opt/drone_venv` already activated):
+
+```
+pip install -e .[dreamer]
+```
+
+Or install the sub-packages directly if you want to control versions:
+
+```
+pip install "jax[cuda12]==0.4.33" optax flax "elements>=3.19.1" "ninjax>=3.5.1" chex "portal>=3.5.0"
+```
+
+See [`docs/dreamer.md`](docs/dreamer.md) for launch commands, smoke-test
+verification, reward-design notes, and references.
+
 ### Step 3: Train a hover policy
 
 Let's train a simple drone hover controller using the task defined in `cfg/task/Hover.yaml`. This will train a policy that outputs thrust and bodyrate commands to hover in a static position. The number of envs are specified in the yaml file's `num_envs` argument. The environment observation space, and rewards are defined in `EECS106B/omni_drones/envs/single/hover.py`. Make sure you understand these two files, since you will have to create similar files for a drone racing task.

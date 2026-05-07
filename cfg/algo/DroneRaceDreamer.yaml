@@ -1,0 +1,81 @@
+# ----------------------------------------------------------------------------
+# Copyright (c) 2026 C. K. Wolfe. All rights reserved.
+#
+# NOT FREE TO USE. Redistribution, modification, or commercial use of this
+# file is not permitted without explicit written permission from C. K. Wolfe.
+# ----------------------------------------------------------------------------
+
+name: dreamerv3
+
+# ---- collector / training schedule -------------------------------------------
+train_every: 16            # frames_per_batch = num_envs * train_every
+train_ratio: 128           # SkyDreamer: 128 grad-steps per env-step
+gradient_steps: 2048       # = train_ratio * train_every (kept explicit; bridge can recompute)
+
+# ---- world model / replay -----------------------------------------------------
+# batch_size 20 = 4 × 5 so it shards cleanly across 5 GPUs (paper uses 16).
+# batch_length 64 = paper §III-A warm-up phase; flips to 256 at 8M env steps
+# via phase_schedule below.
+batch_size: 20
+batch_length: 64
+replay_size: 10_000_000
+replay_context: 16
+
+# ---- imagination / RL ---------------------------------------------------------
+imag_horizon: 16           # SkyDreamer (vanilla DreamerV3 = 15)
+gamma: 0.997
+return_lambda: 0.95
+slowtar: true
+slowreg: 1.0
+
+# ---- optimizer (optax) --------------------------------------------------------
+lr: 4.0e-5
+agc: 0.3
+eps: 1.0e-20
+beta1: 0.9
+beta2: 0.999
+entropy_coef: 3.0e-4
+
+# ---- loss scales (DreamerV3 defaults) -----------------------------------------
+loss_scales:
+  rec: 1.0
+  rew: 1.0
+  con: 1.0
+  dyn: 1.0
+  rep: 0.1
+  policy: 1.0
+  value: 1.0
+  repval: 0.3
+
+# ---- SkyDreamer deltas --------------------------------------------------------
+lambda_smooth: 0.002       # actor-mean smoothness regularizer in imagination
+informed_decode: true      # decoder targets privileged state, not obs
+decode_keys: [priv]        # bridge packs info.drone_state under key 'priv'
+vision: false              # set true in DroneRaceDreamerVision.yaml
+
+# ---- model size preset (layered over vendored configs.yaml) -------------------
+model_size: size12m
+
+# ---- multi-phase training schedule --------------------------------------------
+phase_schedule:
+  batch_length_step: 8_000_000   # at this many env steps: batch_length 64 -> 256
+  batch_length_late: 256
+  lr_step: 13_000_000            # at this many env steps: lr -> lr_late, entropy -> entropy_late
+  lr_late: 2.0e-6
+  entropy_late: 1.0e-5
+
+# ---- AUTO phase trigger (smarter than fixed-frame schedule) -------------------
+# Paper §III-A drops lr+entropy at 13M frames to lock in the policy after the
+# advantage signal saturates. For shorter runs the 13M threshold never fires,
+# so we trigger on the symptom directly: when `adv_std` stays below
+# `auto_stage_threshold` for `auto_stage_window` consecutive train_op calls,
+# fire the lr/entropy drop. Min-frame guard avoids triggering during cold start.
+auto_stage: true
+auto_stage_metric: adv_std    # one of the dreamer/<metric> keys returned by agent.train
+auto_stage_threshold: 0.07    # plateau iff max(history) < this
+auto_stage_window: 5          # rolling window length
+auto_stage_min_frames: 100_000
+
+# ---- runtime knobs ------------------------------------------------------------
+play_mode: false
+checkpoint_path: null
