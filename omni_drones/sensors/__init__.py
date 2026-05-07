@@ -20,4 +20,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from .gate_segmask import GateSegmask, GateSegmaskCfg
 
+__all__ = ["GateSegmask", "GateSegmaskCfg"]
