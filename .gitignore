@@ -140,6 +140,7 @@ videos/
 # collected data
 *.pt
 urdf/
+!omni_drones/robots/assets/drones/**/urdf/
 *.pkl
 *.pth
 tmp
@@ -159,3 +160,8 @@ docker/.home
 cache_sim/
 .hydra_outputs/
 .tmp_wandb/
+
+# Heavy 5-inch racing drone assets — fetched from HF Hub via
+# scripts/setup_racing_drone_assets.py, never tracked here.
+omni_drones/robots/assets/drones/five_in/meshes/base_link.dae
+omni_drones/robots/assets/drones/five_in/configuration/5_in_drone_base.usd
