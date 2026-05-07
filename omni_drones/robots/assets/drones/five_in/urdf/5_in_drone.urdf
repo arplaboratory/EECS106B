@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="5_in_drone">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://meshes/base_link.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://meshes/base_link.dae"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <mass value="0.5"/>
+      <inertia ixx="0.003" ixy="0.0" ixz="0.0" iyy="0.003" iyz="0.0" izz="0.006"/>
+    </inertial>
+  </link>
+
+  <link name="rotor_0">
+    <visual>
+      <geometry>
+        <mesh filename="package://meshes/prop.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://meshes/prop.dae"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="rotor_1">
+    <visual>
+      <geometry>
+        <mesh filename="package://meshes/prop.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://meshes/prop.dae"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="rotor_2">
+    <visual>
+      <geometry>
+        <mesh filename="package://meshes/prop.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://meshes/prop.dae"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="rotor_3">
+    <visual>
+      <geometry>
+        <mesh filename="package://meshes/prop.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://meshes/prop.dae"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="rotor_0_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="rotor_0"/>
+    <origin xyz="0.0883 0.0883 0.015" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1e6" upper="1e6" effort="80.0" velocity="6000.0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="rotor_1_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="rotor_1"/>
+    <origin xyz="0.0883 -0.0883 0.015" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1e6" upper="1e6" effort="80.0" velocity="6000.0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="rotor_2_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="rotor_2"/>
+    <origin xyz="-0.0883 0.0883 0.015" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1e6" upper="1e6" effort="80.0" velocity="6000.0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="rotor_3_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="rotor_3"/>
+    <origin xyz="-0.0883 -0.0883 0.015" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1e6" upper="1e6" effort="80.0" velocity="6000.0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+</robot>

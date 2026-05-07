@@ -1,0 +1,38 @@
+# 5-inch racing quad — reference airframe (see assets/drones/five_in/urdf/5_in_drone.urdf).
+# seven_in numbers are derived from this file + seven_in_physics.py (not uniform linear scaling).
+#
+# Scaling note (homogeneous *geometric* model):
+#   We use one length ratio s ≈ 1.45 (7"/5" class). Only *lengths* scale ∝ s.
+#   Mass ∝ s³, body inertia ∝ s⁵, prop disk area ∝ s²; thrust coef for same max TWR
+#   scales ∝ m_7/m_5 (≈ s³ here). Real builds are not perfectly homogeneous — tune.
+#
+# This file is documentation/cross-reference; Isaac MDP defaults for 7" import seven_in_physics.
+name: five_in_drone
+mass: 0.5
+rotor_configuration:
+  # Allocation arm_length: L/√2 = planar COM–hub; L = 2 * arm_xy from URDF joints
+  arm_length: 0.1766
+  num_rotors: 4
+  force_constants:
+    - 4.8e-07
+    - 4.8e-07
+    - 4.8e-07
+    - 4.8e-07
+  moment_constants:
+    - 2.0e-09
+    - 2.0e-09
+    - 2.0e-09
+    - 2.0e-09
+  max_rotation_velocities:
+    - 5000
+    - 5000
+    - 5000
+    - 5000
+motor_model:
+  taus: [0.0001, 0.0001, 0.0001, 0.0001]
+  # sqrt(m*g/(4*thrust_coef)), m=0.5, k=4.8e-7
+  init: [1598.34, 1598.34, 1598.34, 1598.34]
+  max_rate: [50000.0, 50000.0, 50000.0, 50000.0]
+  min_rate: [-50000.0, -50000.0, -50000.0, -50000.0]
+# At omega_max=5000: 4*k*omega^2 = 48 N total → same max TWR basis as seven_in_physics
+max_total_thrust_ref_n: 48.0

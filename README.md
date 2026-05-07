@@ -42,6 +42,31 @@ Then clone this repo, point it at your new private remote, and initialize submod
   ```
 - Make sure to re-source using `source ~/.bashrc`
 
+### Step 1.5: Pull large drone assets from Hugging Face
+
+Two of the 5-inch racing drone's binaries are too big to live directly in this
+git repo (`meshes/base_link.dae` ≈ 155 MB and `configuration/5_in_drone_base.usd`
+≈ 103 MB), so they live in the public Hugging Face dataset
+[`ckwolfe/eecs106b-racing-drone-assets`](https://huggingface.co/datasets/ckwolfe/eecs106b-racing-drone-assets).
+Run this once after cloning to pull them into the bundle directory:
+
+```
+python scripts/setup_racing_drone_assets.py
+```
+
+The script uses `huggingface_hub.hf_hub_download` and caches files under
+`~/.cache/huggingface/hub/`, so subsequent runs are no-ops. The dataset is
+public — anonymous access works — but if you hit rate limits, set `HF_TOKEN`
+to a read-scope token first (see `.env.example` and `https://huggingface.co/settings/tokens`).
+
+If you ever need to skip the script (e.g. air-gapped install), the assets you
+need are exactly:
+
+| File on HF | Destination in this repo |
+|------------|--------------------------|
+| `meshes/base_link.dae` | `omni_drones/robots/assets/drones/five_in/meshes/base_link.dae` |
+| `configuration/5_in_drone_base.usd` | `omni_drones/robots/assets/drones/five_in/configuration/5_in_drone_base.usd` |
+
 ### Step 2: Create the distrobox
 Luckily, we can re-use the grasping distrobox
 Re-enter the distrobox:
