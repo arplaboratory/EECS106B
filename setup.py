@@ -23,4 +23,19 @@ setup(
         "tensordict>=0.10.0",
         "torchrl>=0.10.0",
     ],
+    extras_require={
+        # Optional JAX backend used by the DreamerV3 / SkyDreamer policy
+        # (omni_drones.learning.dreamerv3). Install with:
+        #   pip install -e .[dreamer]
+        # PPO and the other existing algos do not need any of these.
+        "dreamer": [
+            "jax[cuda12]==0.4.33",
+            "optax",
+            "flax",
+            "elements>=3.19.1",
+            "ninjax>=3.5.1",
+            "chex",
+            "portal>=3.5.0",
+        ],
+    },
 )

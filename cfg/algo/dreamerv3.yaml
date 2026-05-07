@@ -1,0 +1,89 @@
+# DreamerV3 / SkyDreamer algorithm config.
+#
+# Selected via: `python scripts/train.py task=DroneRaceDreamer algo=dreamerv3`.
+# The class name `DreamerV3Policy` is registered in
+# omni_drones/learning/__init__.py as ALGOS["dreamerv3"], and train.py
+# dispatches with `ALGOS[cfg.algo.name.lower()]`. Hence `name` below MUST
+# stay as `dreamerv3`.
+#
+# The bridge in omni_drones/learning/dreamerv3/policy.py is documented at
+# the top of that file; consult it for the obs/action key contract.
+name: dreamerv3
+
+# ---- SkyDreamer extensions ------------------------------------------------
+# Toggle vision mode. When true, the bridge will read ("agents","image") from
+# the obs TensorDict and feed it into the agent's image encoder. Requires the
+# task env to publish that key (see DroneRaceDreamerEnv with vision: true).
+vision: false
+
+# Smoothness regularizer coefficient (paper §III-C). Penalises high-frequency
+# action change in imagination rollouts. 0.0 disables.
+lambda_smooth: 0.0
+
+# Multi-phase training schedule. After `batch_length_step` env-frames, the
+# replay sampler switches to the longer batch_length below. After `lr_step`
+# the actor/critic learning rates are scaled by `lr_scale`.
+phase_schedule:
+  batch_length_step: 0       # frames; 0 disables the phase switch
+  batch_length_phase2: 64
+  lr_step: 0
+  lr_scale: 1.0
+
+# Replay context (BPTT warm-up window). 0 means each sampled chunk starts from
+# a zero hidden state. Match the value used during training when resuming.
+replay_context: 0
+
+# Disable JAX sharding when running on a single GPU; cheaper compile and
+# avoids sharded-array surprises when Isaac Sim co-resides on GPU 0.
+disable_sharding: true
+# ---------------------------------------------------------------------------
+
+encoder:
+  hidden_units: [256, 128]
+  layer_norm: true
+  proj_units: [128]
+
+decoder:
+  # The SkyDreamer informed decoder targets the privileged drone state from
+  # `info.drone_state` (15-dim) instead of the raw observation. If the env
+  # also exposes `info.priv` (extended privileged channel), the bridge
+  # prefers that automatically.
+  hidden_units: [128, 128]
+
+world_model:
+  deter_dim: 128
+  stoch_dim: 32
+  discrete_dim: 32
+  hidden_units: [128]          # cat([stoch, action]) -> gru_input
+  prior_hidden_units: [128]    # gru_output -> prior_logits
+  post_hidden_units: [128]     # cat([embed, deter]) -> post_logits
+  lr: 1e-4
+  kl_free: 1.0
+
+actor:
+  hidden_units: [128]
+  lr: 3e-5
+critic:
+  dist: normal
+  value_pred_dist: twohot_symlog
+  hidden_units: [128]
+  lr: 3e-5
+
+reward_pred:
+  dist: normal
+  hidden_units: [128]
+discount_pred:
+  hidden_units: [128]
+
+discount: 0.95
+gradient_steps: 64
+buffer_size: 1024
+train_every: 64
+batch_size: 32
+batch_length: 64
+
+max_grad_norm: 100
+return_lambda: 0.95
+imag_horizon: 15
+actor_grad: dynamics
+actor_entropy_coeff: 0.001

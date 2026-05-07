@@ -1,0 +1,99 @@
+# Task config for the JAX DreamerV3 / SkyDreamer policy.
+#
+# Pairs with cfg/algo/DroneRaceDreamer.yaml (full SkyDreamer recipe) or the
+# smaller cfg/algo/dreamerv3.yaml. The env is the slim subclass of
+# DroneRaceEnv in omni_drones/envs/drone_race/drone_race_dreamer.py — all
+# DroneRaceEnv config keys (track_config, gate geometry, reward scales) apply
+# unchanged. Reward / punishment scales DEFAULT to 0; students should set
+# meaningful values in DroneRace.yaml or override here.
+#
+# Launch:
+#   python scripts/train.py task=DroneRaceDreamer algo=DroneRaceDreamer
+
+name: DroneRaceDreamerEnv
+
+defaults:
+  - /base/env_base@_here_
+  - /base/sim_base@_here_
+
+env:
+  num_envs: 125            # divides cleanly across 5 GPUs for JAX sharding
+  max_episode_length: 500
+
+sim:
+  substeps: 5
+  dt: 0.002
+
+drone_model:
+  name: Iris
+  controller: RateController
+
+total_frames: 17_000_000
+save_interval: 10
+
+# ---- Vision toggle --------------------------------------------------------
+# When true the slim env publishes ("agents","image"); algo must also be
+# launched with `algo.vision=true` for the image encoder to be wired up.
+vision: false
+image_resolution: [64, 64]
+
+# ---- Track configuration --------------------------------------------------
+# Default 13-gate A2RL race track (matches the commented track in DroneRace.yaml
+# and the SkyDreamer reference). Last gate must match the first for closed laps.
+track_config:
+  "1":
+    pos: [12.5, 2.0, 1.0]
+    yaw: 3.14
+  "2":
+    pos: [6.5, 6.0, 1.0]
+    yaw: 2.36
+  "3":
+    pos: [5.5, 14.0, 1.0]
+    yaw: 2.093
+  "4":
+    pos: [2.5, 24.0, 1.0]
+    yaw: 1.57
+  "5":
+    pos: [7.5, 30.0, 1.0]
+    yaw: 6.11
+  "6":
+    pos: [12.2, 22.0, 1.0]
+    yaw: 6.28
+  "7":
+    pos: [17.5, 30.0, 3.0]
+    yaw: 7.68
+  "8":
+    pos: [17.5, 30.0, 1.0]
+    yaw: 4.54
+  "9":
+    pos: [18.0, 22.0, 1.0]
+    yaw: 4.88
+  "10":
+    pos: [20.5, 14.0, 1.0]
+    yaw: 4.54
+  "11":
+    pos: [18.5, 6.0, 3.0]
+    yaw: 3.92
+  "12":
+    pos: [18.5, 6.0, 1.0]
+    yaw: 3.92
+  "13":
+    pos: [12.5, 2.0, 1.0]
+    yaw: 3.14
+
+gate_scale: 1.0
+gate_height: 2.5
+gate_width: 2.5
+
+# ---- Reward shaping -------------------------------------------------------
+# All scales DEFAULT to 0. The parent DroneRaceEnv's _compute_reward_and_done
+# is itself a placeholder (returns zeros) until the student fills it in, so
+# you also need to add reward code there. Keys mirror DroneRace.yaml so the
+# parent __init__ resolves without surprises.
+reward_example: 0.0
+# Suggestions to enable later:
+# reward_progress_scale: 1.0
+# reward_gate_passage:   10.0
+
+debug_gate_origins: false
+debug_axis_length: 0.5

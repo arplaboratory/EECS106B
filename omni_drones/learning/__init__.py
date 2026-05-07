@@ -26,6 +26,15 @@ from .happo import HAPPOPolicy
 from .sac import SACPolicy
 from .td3 import TD3Policy
 
+# DreamerV3 (C. K. Wolfe, 2026) — additive registration only; PPO and the
+# other existing algos above are unchanged.
+try:
+    from .dreamerv3 import DreamerV3Policy
+except Exception as _dreamer_import_err:  # noqa: BLE001
+    DreamerV3Policy = None
+    import logging as _logging
+    _logging.debug("DreamerV3Policy unavailable: %s", _dreamer_import_err)
+
 ALGOS = {
     "mappo": MAPPOPolicy,
     "happo": HAPPOPolicy,
@@ -35,3 +44,5 @@ ALGOS = {
     "sac": SACPolicy,
     "td3": TD3Policy,
 }
+if DreamerV3Policy is not None:
+    ALGOS["dreamerv3"] = DreamerV3Policy
