@@ -60,33 +60,48 @@ You will also need to source the isaac lab venv as the same in project 4b
 source /workspace/isaacsim/setup_conda_env.sh
 ```
 
-### Step 3: Train a hover policy
+### Step 3: (Optional) Set up Weights & Biases (wandb)
+
+In the training config (`cfg/train.yaml`), you can modify `wandb.entity` with your W&B account/team to receive uploaded runs when `wandb.mode: online`:
+1. Create/log into a W&B account.
+2. Set `wandb.entity` to your personal or team entity in `cfg/train.yaml`.
+3. Ensure wandb is not disabled (i.e., don’t pass `wandb.mode=disabled`).
+
+### Step 4: Train a hover policy
 
 Let's train a simple drone hover controller using the task defined in `cfg/task/Hover.yaml`. This will train a policy that outputs thrust and bodyrate commands to hover in a static position. The number of envs are specified in the yaml file's `num_envs` argument. The environment observation space, and rewards are defined in `EECS106B/omni_drones/envs/single/hover.py`. Make sure you understand these two files, since you will have to create similar files for a drone racing task.
 
-The `drone_model["controller"]` field in `cfg/task/Hover.yaml`, specifies the controller type and therefore the action space of the policy. `RateController` is a body rate controller, so the drone accepts thrust and body rates commands. Therefore the policy will output 4 values. 
+The `drone_model["controller"]` field in `cfg/task/Hover.yaml` specifies the controller type and therefore the action space of the policy. `RateController` is a body rate controller, so the drone accepts thrust and body rates commands. Therefore the policy will output 4 values.
 
-Inside distrobox,
+Inside distrobox, run training:
 
-```
+```bash
 python3 scripts/train.py algo=ppo headless=true
 ```
 
-If you haven't setup wandb, run `python train.py algo=ppo headless=true wandb.mode=disabled` instead. If you see PPO training logs (e.g., average reward metrics), your setup is working.
+If you are **not using Weights & Biases (wandb)**, disable it:
 
-After training is complete, visualize the results. You should see the drone reach the goal state. 
-
+```bash
+python3 scripts/train.py algo=ppo headless=true wandb.mode=disabled
 ```
+
+If you see PPO training logs (e.g., average reward metrics), your setup is working.
+
+After training is complete, visualize the results (you should see the drone reach the goal state):
+
+```bash
 python play.py task=Hover task.env.num_envs=1 algo=ppo algo.checkpoint_path=</tmp/wandb/run--runid/files/checkpoint_final.pt> headless=False
 ```
 
-If you haven't configured wandb, the checkpoint files will be saved in  `/tmp/wandb/`.
+Checkpoint files will be saved locally under `/tmp/wandb/` (regardless of whether wandb upload is enabled).
 
-### Step 4: Racing environment
+### Step 5: Racing environment
 
-The racing environment is defined in `envs/drone_race/drone_race.py`. We provide the user with code for extracting the relevant observations. You must design the reward function in `_compute_reward_and_done`. The environment configuration in defined in `cfg/task/DroneRace.yaml` and the ppo parameters are in `cfg/algo/DroneRace.yaml`. Feel free to change any other parts of the pipeline, this is simply a good starting point. 
+The racing environment is defined in `envs/drone_race/drone_race.py`. We provide the user with code for extracting the relevant observations. You must design the reward function in `_compute_reward_and_done`. The environment configuration in defined in `cfg/task/DroneRace.yaml` and the ppo parameters are in `cfg/algo/DroneRace.yaml`. Feel free to change any other parts of the pipeline, this is simply a good starting point.
 
-**What you should not change:** Drone dynamics including the drone's physical parameters and constraints. Gate design and gate locations.
+**What you should not change:**
+- Drone dynamics, including the drone's physical parameters and constraints
+- Gate design and gate locations
 
 ### How to stop and remove the container
 
