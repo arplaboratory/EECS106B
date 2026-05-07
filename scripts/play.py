@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import time
 
 import hydra
@@ -7,6 +8,10 @@ import torch
 
 from tqdm import tqdm
 from omegaconf import OmegaConf
+
+ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 from omni_drones import init_simulation_app
 from torchrl.data import CompositeSpec
@@ -28,11 +33,29 @@ from torchrl.envs.transforms import TransformedEnv, InitTracker, Compose
 
 FILE_PATH = os.path.dirname(__file__)
 
-@hydra.main(config_path=FILE_PATH, config_name="train", version_base=None)
+@hydra.main(config_path=FILE_PATH, config_name="play", version_base=None)
 def main(cfg):
     OmegaConf.register_new_resolver("eval", eval)
     OmegaConf.resolve(cfg)
     OmegaConf.set_struct(cfg, False)
+
+    # If the task yaml specifies a ppo_cfg field, load that file from cfg/algo/
+    # and merge it over the default algo config, allowing per-task PPO settings.
+    ppo_cfg_name = cfg.task.get("ppo_cfg", None)
+    if ppo_cfg_name:
+        import pathlib
+        algo_dir = pathlib.Path(__file__).parent.parent / "cfg" / "algo"
+        ppo_cfg_path = algo_dir / ppo_cfg_name
+        if not ppo_cfg_path.suffix:
+            ppo_cfg_path = ppo_cfg_path.with_suffix(".yaml")
+        if ppo_cfg_path.exists():
+            logging.info(f"Loading task-specific PPO config: {ppo_cfg_path}")
+            task_ppo_cfg = OmegaConf.load(ppo_cfg_path)
+            cfg.algo = OmegaConf.merge(cfg.algo, task_ppo_cfg)
+        else:
+            logging.warning(f"ppo_cfg '{ppo_cfg_name}' not found at {ppo_cfg_path}, using default.")
+
+
     simulation_app = init_simulation_app(cfg)
 
     setproctitle(cfg.task.name)
